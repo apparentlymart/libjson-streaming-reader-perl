@@ -17,7 +17,7 @@ sub for_stream {
     $self->{stream} = $stream;
 }
 
-
+sub 
 
 1;
 
@@ -117,5 +117,23 @@ Represents a JSON boolean. If it's C<true> then 1 is passed as an argument, or i
 =head2 add_null
 
 Represents a JSON null.
+
+=head1 STREAM BUFFERING
+
+This module doesn't do any buffering. It expects the underlying stream to
+do appropriate read buffering if necessary.
+
+=head1 LIMITATIONS
+
+=head2 No Non-blocking API
+
+Currently there is no way to make this module do non-blocking reads. In future
+an event-based version of the callback-based API could be added that can be
+used in applications that must not block while the whole object is processed, such
+as those using L<POE> or L<Danga::Socket>.
+
+This module expects to be able to do blocking reads on the provided stream. It will
+not behave well if a read fails with C<EWOULDBLOCK>, so passing non-blocking
+L<IO::Socket> objects is not recommended.
 
 
