@@ -1,0 +1,12 @@
+
+=head1 NAME
+
+JSON::Streaming::Reader - Read JSON strings in a streaming manner
+
+=cut
+
+package JSON::Streaming::Reader;
+
+use strict;
+use warnings;
+
