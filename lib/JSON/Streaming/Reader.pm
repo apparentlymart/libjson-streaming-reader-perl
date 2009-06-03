@@ -10,6 +10,7 @@ package JSON::Streaming::Reader;
 use strict;
 use warnings;
 use Carp;
+use IO::Scalar;
 
 our $VERSION = '0.01';
 
@@ -35,6 +36,13 @@ sub for_stream {
     $self->{state_stack} = [];
     $self->{used} = 0;
     return $self;
+}
+
+sub for_string {
+    my ($class, $value) = @_;
+
+    my $stream = IO::Scalar->new(ref $value ? $value : \$value);
+    return $class->for_stream($stream);
 }
 
 sub get_token {
@@ -279,7 +287,7 @@ sub _get_digits {
 
     my $accum = "";
 
-    while ($self->_peek_char() =~ /\d/) {
+    while (defined($self->_peek_char()) && $self->_peek_char() =~ /\d/) {
         $accum .= $self->_get_char();
     }
 
@@ -300,14 +308,14 @@ sub _get_number_token {
 
     push @accum, $self->_get_digits;
 
-    if ($self->_peek_char() eq '.') {
+    if (defined($self->_peek_char()) && $self->_peek_char() eq '.') {
         push @accum, $self->_get_char();
 
         push @accum, $self->_get_digits;
 
     }
 
-    if ($self->_peek_char() =~ /e/i) {
+    if (defined($self->_peek_char()) && $self->_peek_char() =~ /e/i) {
         push @accum, $self->_get_char();
 
         my $peek = $self->_peek_char();
