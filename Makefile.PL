@@ -5,6 +5,7 @@ WriteMakefile(
     'VERSION_FROM' => 'lib/JSON/Streaming/Reader.pm',
     'PREREQ_PM'		=> {
         'IO::File' => 0,
+        'IO::Scalar' => 0,
         'Carp' => 0,
         'B' => 0,
     },
