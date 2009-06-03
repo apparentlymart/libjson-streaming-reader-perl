@@ -65,7 +65,7 @@ sub get_token {
 
             # If we've found more stuff while we're in the root state and we've
             # already seen stuff then there's junk at the end of the string.
-            die("Unexpected junk at the end of input") if $self->_state == ROOT_STATE && $self->{used};
+            die("Unexpected junk at the end of input\n") if $self->_state == ROOT_STATE && $self->{used};
 
             if ($char eq ',' && ! $done_comma) {
                 if ($self->in_array || $self->in_object) {
@@ -248,8 +248,8 @@ sub _require_char {
     my ($self, $required) = @_;
 
     my $char = $self->_get_char();
-    if ($char ne $required) {
-        die "Expected $required but encountered ".(defined($char) ? $char : 'EOF');
+    unless (defined($char) && $char eq $required) {
+        die "Expected $required but encountered ".(defined($char) ? $char : 'EOF')."\n";
     }
     return $char;
 }
@@ -292,7 +292,7 @@ sub _get_digits {
     }
 
     # We should have got at least one digit
-    die "Expected digits but got ".$self->_peek_char() if $accum eq '';
+    die "Expected digits but got ".(defined $self->_peek_char() ? $self->_peek_char() : 'EOF')."\n" unless defined($accum) && $accum ne '';
 
     return $accum;
 }
@@ -373,7 +373,7 @@ sub _get_string_token {
                 die "\\u sequence not yet supported\n";
             }
             else {
-                die "Invalid escape sequence \\$escape_char";
+                die "Invalid escape sequence \\$escape_char\n";
             }
         }
         else {
@@ -478,6 +478,7 @@ sub made_value {
 
 sub _set_made_value {
     $_[0]->_state->{made_value} = 1 unless $_[0]->_state == ROOT_STATE;
+    $_[0]->{used} = 1;
 }
 
 sub can_start_value {
