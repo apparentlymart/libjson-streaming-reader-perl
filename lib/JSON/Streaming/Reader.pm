@@ -81,6 +81,7 @@ sub get_token {
                     # the end of the property. We exit the property state
                     # but leave the comma so that the next get_token
                     # can still see it.
+                    die("Property has no value\n") unless $self->made_value;
                     $self->_pop_state();
                     $self->_set_made_value;
                     return [ END_PROPERTY ];
@@ -115,6 +116,7 @@ sub get_token {
                 # call to get_token will see it again but it will be
                 # in the is_object state rather than is_property.
                 if ($self->in_property) {
+                    die("Property has no value\n") unless $self->made_value;
                     $self->_pop_state();
                     $self->_set_made_value;
                     return [ END_PROPERTY ];
@@ -320,7 +322,7 @@ sub _get_number_token {
 
         my $peek = $self->_peek_char();
 
-        if ($peek eq '+' || $peek eq '-') {
+        if (defined($peek) && ($peek eq '+' || $peek eq '-')) {
             push @accum, $self->_get_char();
         }
 

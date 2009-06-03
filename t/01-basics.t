@@ -2,6 +2,8 @@
 use Test::More tests => 28;
 use JSON::Streaming::Reader::TestUtil;
 
+test_parse "Empty string", "", [];
+
 test_parse "Empty object", "{}", [ [ 'start_object' ], [ 'end_object' ] ];
 test_parse "Empty array", "[]", [ [ 'start_array' ], [ 'end_array' ] ];
 
