@@ -60,7 +60,6 @@ sub get_token {
             die("Unexpected junk at the end of input") if $self->_state == ROOT_STATE && $self->{used};
 
             if ($char eq ',' && ! $done_comma) {
-                print STDERR "It's a comma!\n";
                 if ($self->in_array || $self->in_object) {
                     if ($self->made_value) {
                         $self->_require_char(',');
@@ -187,16 +186,16 @@ sub get_token {
 
 }
 
-# FIXME: This doesn't currently work. Blows up if there's a string in the stuff to skip,
-# which more often than not there is.
 sub skip {
     my ($self) = @_;
 
     my @end_chars;
 
-    @end_chars = qw(, }) if $self->in_property;
+    @end_chars = (',', '}') if $self->in_property;
     @end_chars = qw(}) if $self->in_object;
     @end_chars = qw(]) if $self->in_array;
+
+    my $start_chars = 0;
 
     while (1) {
         my $peek = $self->_peek_char();
@@ -208,16 +207,21 @@ sub skip {
             # string so that strings containing our end_chars don't
             # cause us problems.
             $self->_parse_string();
+            next;
         }
 
-        if (grep { $_ eq $peek } @end_chars) {
+        if ($start_chars < 1 && grep { $_ eq $peek } @end_chars) {
             unless ($self->in_property && $peek eq '}') {
                 $self->_get_char();
             }
+            my $skipped_value = $self->in_object || $self->in_array;
             $self->_pop_state();
+            $self->_set_made_value() if $skipped_value;
             return;
         }
         else {
+            $start_chars++ if $peek eq '[' || $peek eq '{';
+            $start_chars-- if $peek eq ']' || $peek eq '}';
             $self->_get_char();
         }
     }
@@ -512,12 +516,14 @@ API you make a single method call on the reader object and pass it a CODE ref
 for each token type. The reader object will then consume the entire stream
 and call the callback responding to the type of each token it encounters.
 
-An error token will be raised on tokenizing errors. However, since this tokenizer
-doesn't maintain extensive state only token-level errors will be detected. It
-is up to the caller to catch invalid token combinations.
+An error token will be raised if an error is encountered during parsing.
 
 For tokens that themselves have data, the data items will be passed in as arguments
 to the callback.
+
+The handlers for the C<start_property>, C<start_array> and C<start_object> tokens
+may use the C<skip> method from the pull API, as described below, to avoid processing
+the remainder of the corresponding container.
 
 =head2 $jsonr->process_tokens(%callbacks)
 
@@ -534,6 +540,26 @@ pull API.
 Get the next token from the stream and advance. If the end of the stream is reached, this
 will return C<undef>. Otherwise it returns an ARRAY ref whose first member is the
 token type and its subsequent members are the token type's data items, if any.
+
+=head2 $jsonr->skip()
+
+Quickly skip to the end of the current container. This can be used after a C<start_property>,
+C<start_array> or C<start_object> token is retrieved to signal that the remainder of the
+container is not actually required. The next call to get_token will return the token
+that comes after the corresponding C<end_> token for the current container. The corresponding
+C<end_> token is never returned.
+
+This is most useful for skipping over unrecognised properties when populating a known
+data structure.
+
+It is better to use this method than to implement skipping in the caller because skipping
+is done using a lightweight mechanism that does not need to allocate additional memory
+for tokens encountered during skipping. However, since this method uses a simpler
+state model it may cause less-intuitive error messages to be raised if there is a
+JSON syntax error within the content that is skipped.
+
+Note that errors encountered during skip are actually raised via C<die> rather than
+via the return value as with C<get_token>.
 
 =head1 TOKEN TYPES
 
