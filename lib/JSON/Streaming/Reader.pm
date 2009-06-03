@@ -45,6 +45,16 @@ sub for_string {
     return $class->for_stream($stream);
 }
 
+sub process_tokens {
+    my ($self, %callbacks) = @_;
+
+    while (my $token = $self->get_token()) {
+        my $token_type = shift @$token;
+        my $callback = $callbacks{$token_type} or Carp::croak("No callback provided for $token_type tokens");
+        $callback->(@$token);
+    }
+}
+
 sub get_token {
     my ($self) = @_;
 
