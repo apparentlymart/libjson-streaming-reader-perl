@@ -272,7 +272,7 @@ sub _peek_char {
     return $self->{peeked} if defined($self->{peeked});
 
     my $buf = "";
-    my $success = read($self->{stream}, $buf, 1);
+    my $success = $self->{stream}->read($buf, 1);
 
     unless ($success) {
         # Assume EOF
