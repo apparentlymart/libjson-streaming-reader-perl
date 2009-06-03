@@ -1,5 +1,5 @@
 
-use Test::More tests => 28;
+use Test::More tests => 29;
 use JSON::Streaming::Reader::TestUtil;
 
 test_parse "Empty string", "", [];
