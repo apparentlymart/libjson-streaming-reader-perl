@@ -633,7 +633,8 @@ do appropriate read buffering if necessary.
 Currently there is no way to make this module do non-blocking reads. In future
 an event-based version of the callback-based API could be added that can be
 used in applications that must not block while the whole object is processed, such
-as those using L<POE> or L<Danga::Socket>.
+as those using L<POE> or L<Danga::Socket>. This would require some considerable
+refactoring, however.
 
 This module expects to be able to do blocking reads on the provided stream. It will
 not behave well if a read fails with C<EWOULDBLOCK>, so passing non-blocking
