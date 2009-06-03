@@ -530,6 +530,21 @@ incoming data.
         # ...
     );
 
+=head1 CREATING A NEW INSTANCE
+
+This module can operate on either an L<IO::Handle> instance or a string.
+
+=head2 JSON::Streaming::Reader->for_stream($fh)
+
+Create a new instance that will read from the provided L<IO::Handle> instance.
+If you want to operate on a raw Perl filehandle, you currently must wrap it up in
+an IO::Handle instance yourself.
+
+=head2 JSON::Streaming::Reader->for_string(\$string)
+
+Create a new instance that will read from the provided string. Uses L<IO::Scalar>
+to make a stream-like wrapper around the string, and passes it into C<for_stream>.
+
 =head1 CALLBACK API
 
 The recommended way to use this library is via the callback-based API. In this
