@@ -16,7 +16,7 @@ use JSON::Streaming::Reader;
 use Test::More;
 
 use base qw(Exporter);
-our @EXPORT = qw(test_parse compare_event_parse);
+our @EXPORT = qw(test_parse);
 
 sub test_parse {
     my ($name, $input, $expected_tokens) = @_;

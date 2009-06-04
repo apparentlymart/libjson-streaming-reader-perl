@@ -1,5 +1,6 @@
 lib/JSON/Streaming/Reader.pm
 lib/JSON/Streaming/Reader/TestUtil.pm
+lib/JSON/Streaming/Reader/EventWrapper.pm
 t/03-callbackapi.t
 t/02-errors.t
 t/00-use.t

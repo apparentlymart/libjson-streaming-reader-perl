@@ -11,6 +11,7 @@ use strict;
 use warnings;
 use Carp;
 use IO::Scalar;
+use JSON::Streaming::Reader::EventWrapper;
 
 our $VERSION = '0.02';
 
@@ -45,6 +46,16 @@ sub for_string {
     return $class->for_stream($stream);
 }
 
+sub event_based {
+    my ($class, %callbacks) = @_;
+
+    my $fake_stream = JSON::Streaming::Reader::EventWrapper->new();
+    my $self = $class->for_stream($fake_stream);
+    $self->{event_callbacks} = \%callbacks;
+
+    return $self;
+}
+
 sub process_tokens {
     my ($self, %callbacks) = @_;
 
@@ -61,7 +72,6 @@ sub get_token {
     return undef if $self->{errored};
 
     my $tok = eval {
-        my $done_comma;
         my $need_comma = $self->made_value;
         while (1) { # Until we find a character that's interesting
             $self->_eat_whitespace();
@@ -77,12 +87,12 @@ sub get_token {
             # already seen stuff then there's junk at the end of the string.
             die("Unexpected junk at the end of input\n") if $self->_state == ROOT_STATE && $self->{used};
 
-            if ($char eq ',' && ! $done_comma) {
+            if ($char eq ',' && ! $self->done_comma) {
                 if ($self->in_array || $self->in_object) {
                     if ($self->made_value) {
                         $self->_require_char(',');
 
-                        $done_comma = 1;
+                        $self->_set_done_comma();
                         next;
                     }
                 }
@@ -118,7 +128,7 @@ sub get_token {
                 return [ START_OBJECT ];
             }
             elsif ($char eq '}') {
-                die("Expected another property\n") if $done_comma;
+                die("Expected another property\n") if $self->done_comma;
 
                 # If we're in a property then this also indicates
                 # the end of the property.
@@ -147,7 +157,7 @@ sub get_token {
             }
             elsif ($char eq ']') {
                 die("End of array without matching start\n") unless $self->in_array;
-                die("Expected another value\n") if $done_comma;
+                die("Expected another value\n") if $self->done_comma;
                 $self->_require_char(']');
                 $self->_pop_state();
                 $self->_set_made_value();
@@ -155,12 +165,12 @@ sub get_token {
             }
             elsif ($char eq '"') {
                 die("Unexpected string value\n") unless $self->can_start_value;
-                die("Expected ,\n") if $need_comma && ! $done_comma;
+                die("Expected ,\n") if $need_comma && ! $self->done_comma;
                 return $self->_get_string_token();
             }
             elsif ($char eq 't') {
                 die("Unexpected boolean value\n") unless $self->can_start_value;
-                die("Expected ,\n") if $need_comma && ! $done_comma;
+                die("Expected ,\n") if $need_comma && ! $self->done_comma;
                 foreach my $c (qw(t r u e)) {
                     $self->_require_char($c);
                 }
@@ -169,7 +179,7 @@ sub get_token {
             }
             elsif ($char eq 'f') {
                 die("Unexpected boolean value\n") unless $self->can_start_value;
-                die("Expected ,\n") if $need_comma && ! $done_comma;
+                die("Expected ,\n") if $need_comma && ! $self->done_comma;
                 foreach my $c (qw(f a l s e)) {
                     $self->_require_char($c);
                 }
@@ -178,7 +188,7 @@ sub get_token {
             }
             elsif ($char eq 'n') {
                 die("Unexpected null\n") unless $self->can_start_value;
-                die("Expected ,\n") if $need_comma && ! $done_comma;
+                die("Expected ,\n") if $need_comma && ! $self->done_comma;
                 foreach my $c (qw(n u l l)) {
                     $self->_require_char($c);
                 }
@@ -187,7 +197,7 @@ sub get_token {
             }
             elsif ($char =~ /^[\d\-]/) {
                 die("Unexpected number value\n") unless $self->can_start_value;
-                die("Expected ,\n") if $need_comma && ! $done_comma;
+                die("Expected ,\n") if $need_comma && ! $self->done_comma;
                 return $self->_get_number_token();
             }
 
@@ -196,10 +206,18 @@ sub get_token {
         }
     };
     if ($@) {
-        $self->{errored} = 1;
-        my $error = $@;
-        chomp $error;
-        return [ ERROR, $error ];
+        unless (ref($@) && $@ == JSON::Streaming::Reader::EventWrapper::UNDERRUN()) {
+            $self->{errored} = 1;
+            my $error = $@;
+            chomp $error;
+            return [ ERROR, $error ];
+        }
+        else {
+            # If it's an underrun signal from our weird event-based IO wrapper,
+            # we pass it through to the caller.
+
+            die $@;
+        }
     }
 
     return $tok;
@@ -208,6 +226,8 @@ sub get_token {
 
 sub skip {
     my ($self) = @_;
+
+    Carp::croak("Can't skip() on an event-based reader") if $self->is_event_based;
 
     my @end_chars;
 
@@ -246,6 +266,59 @@ sub skip {
         }
     }
 
+}
+
+sub feed_buffer {
+    my ($self, $new_data) = @_;
+
+    Carp::croak("Can't feed_buffer on a non-event-based JSON reader") unless $self->is_event_based;
+
+    my $stream = $self->{stream};
+
+    $stream->feed_buffer($new_data);
+
+    # Retain the peek value so we can restore it if we roll back
+    my $old_peek = $self->{peeked};
+
+    # Start a read transaction so we can roll back if there's a buffer underrun
+    $stream->begin_reading();
+
+    my $callbacks = $self->{event_callbacks};
+
+    # Now get our normal, blocking parsing code to try to read tokens until we underrun the buffer.
+    eval {
+        while (my $token = $self->get_token()) {
+            $stream->complete_reading();
+
+            my $token_type = shift @$token;
+            my $callback = $callbacks->{$token_type} or Carp::croak("No callback provided for $token_type tokens");
+            $callback->(@$token);
+
+            # Start a new transaction at the end of the last token.
+            my $old_peek = $self->{peeked};
+            $stream->begin_reading();
+        }
+    };
+    if ($@) {
+        my $err = $@;
+        if (ref($err) && $err == JSON::Streaming::Reader::EventWrapper::UNDERRUN()) {
+            # Roll back and try again when we get more data.
+            $stream->roll_back_reading();
+            print STDERR "Peeked char is ".(defined($self->{peeked})?$self->{peeked}:"undef")."\n";
+            $self->{peeked} = $old_peek;
+            return;
+        }
+        else {
+            # Some other kind of error. Re-throw.
+            die $err;
+        }
+    }
+    else {
+        # We hit EOF without an underrun, so we just need to clean up now.
+        $stream->complete_reading();
+        my $callback = $callbacks->{eof} or Carp::croak("No callback provided for eof");
+        $callback->();
+    }
 }
 
 sub _get_char {
@@ -488,9 +561,18 @@ sub made_value {
     return $_[0]->_state->{made_value} ? 1 : 0;
 }
 
+sub done_comma {
+    return $_[0]->_state->{done_comma} ? 1 : 0;
+}
+
 sub _set_made_value {
     $_[0]->_state->{made_value} = 1 unless $_[0]->_state == ROOT_STATE;
+    $_[0]->_state->{done_comma} = 0 unless $_[0]->_state == ROOT_STATE;
     $_[0]->{used} = 1;
+}
+
+sub _set_done_comma {
+    $_[0]->_state->{done_comma} = 1 unless $_[0]->_state == ROOT_STATE;
 }
 
 sub can_start_value {
@@ -502,6 +584,10 @@ sub can_start_value {
 
 sub _expecting_property {
     return $_[0]->in_object ? 1 : 0;
+}
+
+sub is_event_based {
+    return defined($_[0]->{event_callbacks});
 }
 
 1;
