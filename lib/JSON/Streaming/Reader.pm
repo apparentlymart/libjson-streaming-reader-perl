@@ -695,6 +695,60 @@ JSON syntax error within the content that is skipped.
 Note that errors encountered during skip are actually raised via C<die> rather than
 via the return value as with C<get_token>.
 
+=head1 EVENT-BASED API
+
+This module now has an experimental event-based API which can be used to
+do streaming JSON processing in event-driven applications or those
+which do non-blocking I/O.
+
+In event-based mode it is the caller's responsibility to obtain data and
+when data is available provide it to the reader for processing. When
+enough data is available to unambigously represent a complete, atomic token
+a callback function is called in a similar fashion to the callback-based API
+described above.
+
+The event-based API implementation is currently somewhat hacky and
+inefficient. Caution is advised when making use of it in production
+applications, since it is currently merely a shim over the existing
+blocking API which may introduce strange packet-boundary bugs
+and other misbehavior.
+
+=head2 JSON::Streaming::Reader->event_based(%callbacks)
+
+Creates and returns an event-based reader. Callbacks are provided in the same way
+as to the C<process_tokens> method in the callback-based API, though
+here there is an additional pseudo-token type called 'eof' which
+signals that the end of the stream has been reached.
+
+Note that at present it is not possible to use the C<skip> method
+on an event-based reader, since its implementation still expects
+to be able to block. This ought to be fixed in a future version.
+
+=head2 $jsonr->feed_buffer(\$data)
+
+The caller must call this method whenever new data becomes available
+for processing. A call to this method causes the reader to append
+the supplied data to any existing buffer and then try to consume as
+many tokens as possible from the buffer before returning. A callback
+will be run for each complete token encountered in the buffer.
+
+If the additional data does not allow a complete token to be recognised,
+the reader will retain the leftover buffer and attempt parsing again
+at the next call to C<feed_buffer>.
+
+In most cases this method will be called in response to some event,
+such as a notification that more data is available to read on a socket.
+
+=head2 $jsonr->signal_eof()
+
+The caller must call this method to signal the end of the data stream.
+This will cause the parser to process any remaining bytes in the buffer,
+possibly running token callbacks in the process, and then call the
+special eof callback.
+
+In most cases this method will be called in response to some event,
+such as a notification that a socket stream has been closed.
+
 =head1 TOKEN TYPES
 
 There are two major classes of token types. Bracketing tokens enclose other tokens
@@ -746,21 +800,15 @@ Indicates a tokenization error. A human-readable description of the error is inc
 
 =head1 STREAM BUFFERING
 
-This module doesn't do any buffering. It expects the underlying stream to
-do appropriate read buffering if necessary.
+Except in event-based mode, this module doesn't do any buffering.
+It expects the underlying stream to do appropriate read buffering
+if necessary.
 
-=head1 LIMITATIONS
-
-=head2 No Non-blocking API
-
-Currently there is no way to make this module do non-blocking reads. In future
-an event-based version of the callback-based API could be added that can be
-used in applications that must not block while the whole object is processed, such
-as those using L<POE> or L<Danga::Socket>. This would require some considerable
-refactoring, however.
-
-This module expects to be able to do blocking reads on the provided stream. It will
-not behave well if a read fails with C<EWOULDBLOCK>, so passing non-blocking
-L<IO::Socket> objects is not recommended.
+In event-based mode an internal buffer is used which retains
+bytes that are not yet enough to unambiguously represent
+a complete token so that it can retry when more data is available.
+In this situation it is up to the caller to read from its
+data source in an appropriate manner, but it is best to provide
+as much data as possible in a single data notification.
 
 
