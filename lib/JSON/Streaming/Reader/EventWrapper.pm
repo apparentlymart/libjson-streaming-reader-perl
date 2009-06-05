@@ -31,6 +31,12 @@ sub feed_buffer {
     $self->{buffer} .= $$data;
 }
 
+sub signal_eof {
+    my ($self) = @_;
+
+    $self->{eof} = 1;
+}
+
 sub begin_reading {
     my ($self) = @_;
 
@@ -68,9 +74,14 @@ sub read {
         return 1;
     }
     else {
-        print STDERR "Underrun!\n";
-        $self->_show_buffer();
-        die(UNDERRUN);
+        if ($self->{eof}) {
+            return 0;
+        }
+        else {
+            #print STDERR "Underrun!\n";
+            #$self->_show_buffer();
+            die(UNDERRUN);
+        }
     }
 }
 

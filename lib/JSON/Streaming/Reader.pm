@@ -268,6 +268,19 @@ sub skip {
 
 }
 
+sub signal_eof {
+    my ($self) = @_;
+
+    Carp::croak("Can't signal_eof on a non-event-based JSON reader") unless $self->is_event_based;
+
+    $self->{stream}->signal_eof();
+
+    # Now feed the buffer with nothing to get it to process
+    # whatever we have left in the buffer.
+    my $empty = '';
+    $self->feed_buffer(\$empty);
+}
+
 sub feed_buffer {
     my ($self, $new_data) = @_;
 
@@ -304,7 +317,6 @@ sub feed_buffer {
         if (ref($err) && $err == JSON::Streaming::Reader::EventWrapper::UNDERRUN()) {
             # Roll back and try again when we get more data.
             $stream->roll_back_reading();
-            print STDERR "Peeked char is ".(defined($self->{peeked})?$self->{peeked}:"undef")."\n";
             $self->{peeked} = $old_peek;
             return;
         }
