@@ -12,7 +12,7 @@ use warnings;
 use Carp;
 use IO::Scalar;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 
 use constant ROOT_STATE => {};
 
