@@ -49,7 +49,7 @@ sub compare_event_parse {
     # Now we do an event-driven parse.
 
     my ($event_callbacks, $event_tokens) = test_callbacks();
-    my $jsonw = JSON::Streaming::Reader->event_based(%$event_callbacks);
+    $jsonw = JSON::Streaming::Reader->event_based(%$event_callbacks);
 
     foreach my $chunk (@chunks) {
         $jsonw->feed_buffer(\$chunk);
