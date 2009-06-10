@@ -112,11 +112,11 @@ sub get_token {
                 # If we're in an object then we must start a property here.
                 my $name_token = $self->_get_string_token();
                 die "Expected string\n" unless $name_token->[0] eq ADD_STRING;
+                $self->_eat_whitespace();
+                $self->_require_char(":");
                 my $property_name = $name_token->[1];
                 my $state = $self->_push_state();
                 $state->{in_property} = 1;
-                $self->_eat_whitespace();
-                $self->_require_char(":");
                 return [ START_PROPERTY, $property_name ];
             }
 
