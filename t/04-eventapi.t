@@ -1,5 +1,5 @@
 
-use Test::More tests => 1;
+use Test::More tests => 62;
 use JSON::Streaming::Reader::TestUtil;
 
 compare_event_parse("");
