@@ -13,7 +13,7 @@ use Carp;
 use IO::Scalar;
 use JSON::Streaming::Reader::EventWrapper;
 
-our $VERSION = '0.01';
+our $VERSION = '0.03';
 
 use constant ROOT_STATE => {};
 
@@ -697,7 +697,7 @@ via the return value as with C<get_token>.
 
 =head1 EVENT-BASED API
 
-This module now has an experimental event-based API which can be used to
+This module has an experimental event-based API which can be used to
 do streaming JSON processing in event-driven applications or those
 which do non-blocking I/O.
 
