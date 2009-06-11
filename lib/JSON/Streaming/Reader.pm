@@ -268,6 +268,132 @@ sub skip {
 
 }
 
+sub slurp {
+    my ($self) = @_;
+
+    Carp::croak("Can't slurp() on an event-based reader") if $self->is_event_based;
+
+    my $start_state = $self->_state;
+    my @items = ();
+    my $current_item = undef;
+
+    my $push_item = sub {
+        my $item = shift;
+        push @items, $current_item;
+        $current_item = $item;
+    };
+    my $pop_item = sub {
+        $current_item = pop @items;
+        return $current_item;
+    };
+    my $handle_value = sub {
+        my ($token, $target) = @_;
+        my $type = $token->[0];
+
+        if ($type eq ADD_STRING || $type eq ADD_NUMBER) {
+            $$target = $token->[1];
+        }
+        elsif ($type eq ADD_BOOLEAN) {
+            $$target = $token->[1] ? \1 : \0;
+        }
+        elsif ($type eq ADD_NULL) {
+            $$target = undef;
+        }
+        elsif ($type eq START_OBJECT) {
+            my $new_item = {};
+            $$target = $new_item;
+            $push_item->($new_item);
+        }
+        elsif ($type eq START_ARRAY) {
+            my $new_item = [];
+            $$target = $new_item;
+            $push_item->($new_item);
+        }
+        else {
+            # This should actually never happen, since it should be caught
+            # by the underlying raw API.
+            die "Expecting a value but got a $type token\n";
+        }
+    };
+
+    my $need_deref = 0;
+    if ($self->in_array) {
+        $current_item = [];
+    }
+    elsif ($self->in_object) {
+        $current_item = {};
+    }
+    elsif ($self->in_property) {
+        my $value = undef;
+        $current_item = \$value;
+        $need_deref = 1;
+    }
+    else {
+        die "Can only slurp arrays, object or properties\n";
+    }
+    my $ret_item = $current_item;
+
+    while (my $token = $self->get_token()) {
+        my $type = $token->[0];
+
+        if ($type eq ERROR) {
+            die $token->[1];
+        }
+
+        my $item_type = ref($current_item);
+
+        if ($item_type eq 'SCALAR' || $item_type eq 'REF') {
+            # We're expecting a value
+
+            if ($type eq END_PROPERTY) {
+                $pop_item->();
+                last unless defined($current_item);
+            }
+            else {
+                $handle_value->($token, $current_item);
+            }
+        }
+        elsif ($item_type eq 'ARRAY') {
+            if ($type eq END_ARRAY) {
+                $pop_item->();
+                last unless defined($current_item);
+            }
+            else {
+                # We're expecting a value here too, but
+                # we're going to add it to the end of the
+                # array instead.
+                my $target = \$current_item->[scalar(@$current_item)];
+                $handle_value->($token, $target);
+            }
+        }
+        elsif ($item_type eq 'HASH') {
+            # We're expecting a property here.
+
+            if ($type eq START_PROPERTY) {
+                my $name = $token->[1];
+                my $target = \$current_item->{$name};
+                $push_item->($target);
+            }
+            elsif ($type eq END_OBJECT) {
+                $pop_item->();
+                last unless defined($current_item);
+            }
+            else {
+                die "Not expecting $type in object state\n";
+            }
+        }
+        else {
+            die "Don't know what to do with a $item_type value\n";
+        }
+
+    }
+
+    # There should be nothing in $current_item by this point.
+    die "Unexpected end of input" if defined($current_item);
+
+    return $need_deref ? $$ret_item : $ret_item;
+}
+
 sub signal_eof {
     my ($self) = @_;
 
@@ -695,6 +821,36 @@ JSON syntax error within the content that is skipped.
 Note that errors encountered during skip are actually raised via C<die> rather than
 via the return value as with C<get_token>.
 
+=head2 $jsonr->slurp()
+
+Skip to the end of the current container, capturing its value.
+This allows you to handle a C<start_property>,
+C<start_array> or C<start_object> token as if it were an C<add_>-type token,
+dealing with its entire contents in one go.
+
+The next call to get_token will return the token
+that comes after the corresponding C<end_> token for the current container. The corresponding
+C<end_> token is never returned.
+
+The return value of this method call will be a Perl data structure
+representing the data that was skipped. This uses the same mappings as other
+popular Perl JSON libraries: objects become hashrefs, arrays become arrayrefs,
+strings and integers become scalars, boolean values become references to either
+1 or 0, and null becomes undef.
+
+This is useful if there is a part of the tree that you would rather handle
+via an in-memory data structure like you'd get from a non-streaming JSON parser.
+It allows you to mix-and-match streaming parsing and one-shot parsing
+within a single data stream.
+
+Note that errors encountered during skip are actually raised via C<die> rather than
+via the return value as with C<get_token>.
+
+If you call this when in property state it will return the value of the property
+and parsing will continue after the corresponding C<end_property>. In object or
+array state it will return the object or array and continue after the corresponding
+C<end_object> or C<end_array>.
+
 =head1 EVENT-BASED API
 
 This module has an experimental event-based API which can be used to
@@ -720,8 +876,8 @@ as to the C<process_tokens> method in the callback-based API, though
 here there is an additional pseudo-token type called 'eof' which
 signals that the end of the stream has been reached.
 
-Note that at present it is not possible to use the C<skip> method
-on an event-based reader, since its implementation still expects
+Note that at present it is not possible to use the C<skip> or C<slurp> methods
+on an event-based reader, since their implementations expect
 to be able to block. This ought to be fixed in a future version.
 
 =head2 $jsonr->feed_buffer(\$data)
