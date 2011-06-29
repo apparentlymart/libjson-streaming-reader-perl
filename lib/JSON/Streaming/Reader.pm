@@ -92,6 +92,12 @@ sub get_token {
                     if ($self->made_value) {
                         $self->_require_char(',');
 
+                        if($self->is_event_based) {
+                            my $stream = $self->{stream};
+                            $stream->complete_reading;
+                            $stream->begin_reading;
+                        }
+
                         $self->_set_done_comma();
                         next;
                     }

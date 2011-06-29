@@ -7,5 +7,6 @@ t/00-use.t
 t/01-basics.t
 t/04-eventapi.t
 t/05-slurp.t
+t/06-underrun.t
 Makefile.PL
 MANIFEST
