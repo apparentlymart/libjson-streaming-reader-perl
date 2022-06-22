@@ -13,7 +13,7 @@ use Carp;
 use IO::Scalar;
 use JSON::Streaming::Reader::EventWrapper;
 
-our $VERSION = '0.07';
+our $VERSION = '0.06';
 
 use constant ROOT_STATE => {};
 
