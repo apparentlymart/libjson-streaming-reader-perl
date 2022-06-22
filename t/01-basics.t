@@ -1,5 +1,4 @@
-
-use Test::More tests => 29;
+use Test::More tests => 35;
 use JSON::Streaming::Reader::TestUtil;
 
 test_parse "Empty string", "", [];
@@ -12,6 +11,15 @@ test_parse "Non-empty string", '"hello"', [ [ 'add_string', 'hello' ] ];
 
 test_parse "String with escapes", "\"hello\\nworld\"", [ [ 'add_string', "hello\nworld" ] ];
 test_parse "String with literal quotes and backslahes", "\"hello\\\\\\\"world\\\"\"", [ [ 'add_string', "hello\\\"world\"" ] ];
+
+# Tests everything because it's an entirely different parser
+test_parse "String with u escape for A", "\"\\u0041 Unicode A\"", [ [ 'add_string', "A Unicode A"] ];
+test_parse "String with u escape and escapes", "\"\\u0041hello\\nworld\"", [ [ 'add_string', "Ahello\nworld" ] ];
+
+test_parse "String with u escape for utf16", "\"\\ud834\\udd1e Unicode symbol\"", [ [ 'add_string', "\N{MUSICAL SYMBOL G CLEF} Unicode symbol" ] ];
+test_parse "String with short u escape", "\"\\u5d symbol\"", [ [ 'add_string', "] symbol" ] ];
+test_parse "String with u escapes and escapes", "\"\\u0041hello\\nworld\"", [ [ 'add_string', "Ahello\nworld" ] ];
+test_parse "String with u escapes literal quotes and backslahes", "\"\\u0041hello\\\\\\\"world\\\"\\u0041\"", [ [ 'add_string', "Ahello\\\"world\"A" ] ];
 
 test_parse "Zero", '0', [ [ 'add_number', 0 ] ];
 test_parse "One", '1', [ [ 'add_number', 1 ] ];
@@ -50,4 +58,3 @@ test_parse "Object containing a property whose value is an empty object", '{"hel
     [ 'end_property' ],
     [ 'end_object' ],
 ];
-
