@@ -13,7 +13,7 @@ use Carp;
 use IO::Scalar;
 use JSON::Streaming::Reader::EventWrapper;
 
-our $VERSION = '0.06';
+our $VERSION = '0.07';
 
 use constant ROOT_STATE => {};
 
@@ -574,12 +574,78 @@ my %escape_chars = (
     '"' => '"',
 );
 
+# Handling the escaped chars is fun, because the \u can be several
+# bytes wide and we need to treat that entirely as one "character".
+# So, we get to walk the string, unescaping as we go.
+# We only call this if we find a \u in the string.  Otherwise the fast
+# single-character replacement happens at string read time.
+
+sub _full_unescape_chars {
+    my $str = shift;
+
+    my $offset = 0;
+
+    while($offset < length $str) {
+
+        # Something's escaped, deal with it
+        if(substr($str, $offset, 1) eq "\\") {
+
+            my $esc = substr($str, $offset+1, 1);
+
+            # \u can be a special \uAAAA\uBBBB which is really an encoded UTF-16
+            # or it can be \uXXXX where X is hex digits.  This code allows between
+            # one and all the rest of the string, because that's what I found in
+            # real-world data.  I suspect the spec expect it to be only four digits.
+            if($esc eq 'u') {
+
+                # Handle the special UTF-16 byte encodings
+                my $two_byte = substr($str, $offset+2, 10);
+                if($two_byte =~ m/^([0-9A-Fa-f]{4})\\u([0-9A-Fa-f]{4})$/) {
+                    # See perldoc perlunicode for the source of this translation.
+                    my $hi = hex($1);
+                    my $lo = hex($2);
+                    die sprintf("Invalid Unicode surrogates %x and %x", $hi, $lo) if($hi < 0xD800 || $lo < 0xDc00);
+                    my $utf = 0x10000 + ($hi - 0xD800) * 0x400 + ($lo - 0xDC00);
+                    my $new_char = chr(utf8::unicode_to_native($utf));
+                    utf8::upgrade($new_char);
+                    substr($str, $offset, 12) = $new_char;
+                }
+                else {
+                    # Search for all the hex digits after the \u and use them
+                    my $width = 1;
+                    my $foundhex = 0;
+                    while( ($width + $offset + 1) < length $str && ((my $test_hex = substr($str, $offset+2, $width)) =~ /^[0-9A-Fa-f]*$/)) {
+                        $foundhex = hex($test_hex);
+                        $width++;
+                    }
+                    $width--;
+                    my $uc = chr(utf8::unicode_to_native($foundhex));
+                    utf8::upgrade($uc);
+                    substr($str, $offset, 2 + $width) = $uc;
+                }
+            }
+            elsif (defined $escape_chars{$esc}) {
+                substr($str, $offset, 2) = $escape_chars{$esc};
+            }
+            else {
+                croak "Unknown escape sequeince $esc";
+            }
+        }
+        $offset++;
+    }
+
+    return $str;
+}
+
+
 sub _get_string_token {
     my ($self) = @_;
 
     $self->_require_char('"');
 
     my $accum = "";
+    my $original_string = "";
+    my $needs_full_unescape = 0;
 
     while (1) {
         my $char = $self->_get_char();
@@ -588,9 +654,11 @@ sub _get_string_token {
         if ($char eq '"') {
             last;
         }
+        $original_string .= $char;
 
         if ($char eq "\\") {
             my $escape_char = $self->_get_char();
+            $original_string .= $escape_char;
 
             die "Unfinished escape sequence\n" unless defined($escape_char);
 
@@ -598,8 +666,13 @@ sub _get_string_token {
                 $accum .= $replacement;
             }
             elsif ($escape_char eq 'u') {
-                # TODO: Support this
-                die "\\u sequence not yet supported\n";
+                # This has to be parsed later, with a slower parser.
+                $needs_full_unescape = 1;
+
+                while($self->_peek_char() =~ /[0-9a-fA-F]/) {
+                    my $skipped = $self->_get_char();
+                    $original_string .= $skipped;
+                }
             }
             else {
                 die "Invalid escape sequence \\$escape_char\n";
@@ -608,6 +681,11 @@ sub _get_string_token {
         else {
             $accum .= $char;
         }
+    }
+
+    # If this has a \u in it, process the accumulated string to get the right values.
+    if($needs_full_unescape) {
+        $accum = _full_unescape_chars($original_string);
     }
 
     $self->_set_made_value();
@@ -621,6 +699,8 @@ sub _parse_string {
     $self->_require_char('"');
 
     my $accum = "";
+    my $original_string = "";
+    my $needs_full_unescape = 0;
 
     # Don't bother building the result buffer if we're called in void context
     my $want_result = defined(wantarray());
@@ -632,9 +712,11 @@ sub _parse_string {
         if ($char eq '"') {
             last;
         }
+        $original_string .= $char if $want_result;
 
         if ($char eq "\\") {
             my $escape_char = $self->_get_char();
+            $original_string .= $escape_char if $want_result;
 
             die "Unfinished escape sequence\n" unless defined($escape_char);
 
@@ -642,16 +724,24 @@ sub _parse_string {
                 $accum .= $replacement if $want_result;
             }
             elsif ($escape_char eq 'u') {
-                # TODO: Support this
-                die "\\u sequence not yet supported\n";
+                $needs_full_unescape = 1;
+                while($self->_peek_char() =~ /[0-9a-fA-F]/) {
+                    my $skipped = $self->_get_char();
+                    $original_string .= $skipped if $want_result;
+                }                
             }
             else {
                 die "Invalid escape sequence \\$escape_char";
             }
         }
         else {
-            $accum .= $char if $want_result;
+           $accum .= $char if $want_result;
         }
+    }
+
+    # If this has a \u in it, process the accumulated string to get the right values.
+    if($want_result && $needs_full_unescape) {
+        $accum = _full_unescape_chars($original_string);
     }
 
     return $accum;
